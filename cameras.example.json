@@ -1,0 +1,8 @@
+{
+  "defaults": { "fps": 15, "width": 640, "tau": 25, "theta": 0.01, "hold": 2, "loop": true },
+  "cameras": [
+    { "id": "gate",   "src": "test.mp4" },
+    { "id": "garage", "src": "test2.mp4", "theta": 0.008 },
+    { "id": "front",  "src": "rtsp://user:pass@192.168.1.10:554/stream1", "hold": 4 }
+  ]
+}

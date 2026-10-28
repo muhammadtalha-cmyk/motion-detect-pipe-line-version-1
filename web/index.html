@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Motion Gate</title>
+<style>
+:root{--bg:#0f1115;--card:#181b22;--tx:#e8eaf0;--mut:#8b91a1;--ok:#2ecc71;--hot:#ff4d4d;--warn:#f5a623;color-scheme:dark}
+@media (prefers-color-scheme:light){:root{--bg:#f4f5f8;--card:#fff;--tx:#1b1e26;--mut:#667085;color-scheme:light}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px system-ui,-apple-system,Segoe UI,sans-serif;padding:14px}
+h1{font-size:18px;margin:0 0 10px}
+.totals{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:12px}
+.stat{background:var(--card);border-radius:10px;padding:8px 10px}.stat span{display:block;color:var(--mut);font-size:11px}.stat strong{font-size:20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,460px),1fr));gap:12px}
+.card{background:var(--card);border-radius:12px;padding:10px}
+.th{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.badge{padding:3px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#4a5160;color:#fff}
+.badge.person{background:#1fa971}.badge.motion{background:var(--hot)}.badge.hold{background:var(--warn)}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.wrap{position:relative}canvas{width:100%;display:block;border-radius:8px;background:#000;aspect-ratio:16/9}
+.tag{position:absolute;left:6px;top:6px;padding:1px 7px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(0,0,0,.65);color:#fff}
+.bar{height:8px;background:#0003;border-radius:6px;position:relative;margin:8px 0 2px;overflow:hidden}
+.bar i{position:absolute;left:0;top:0;bottom:0;background:var(--ok);width:0}.bar b{position:absolute;top:0;bottom:0;width:2px;background:#fff;left:33.3%}
+.sm{margin:0;color:var(--mut);font-size:12px}
+#log{margin-top:12px;font:12px ui-monospace,monospace;color:var(--mut);max-height:150px;overflow:auto;background:var(--card);border-radius:10px;padding:8px 10px}
+#gallery-wrap{margin-top:16px;background:var(--card);border-radius:12px;padding:12px}
+#gallery-title{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.07em;margin:0 0 10px;display:flex;justify-content:space-between;align-items:center}
+#gallery-count{font-weight:600;color:var(--tx)}
+#gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;max-height:480px;overflow-y:auto;padding-right:4px}
+.shot-thumb{background:#0004;border-radius:8px;overflow:hidden;width:100%;cursor:default;position:relative;border:1px solid rgba(255,255,255,0.06);transition:transform .15s ease}
+.shot-thumb:hover{transform:translateY(-2px);border-color:rgba(255,255,255,0.15)}
+.shot-thumb img{width:100%;height:105px;object-fit:cover;display:block;border-radius:7px 7px 0 0}
+.shot-meta{padding:4px 6px;font-size:10px;color:var(--mut);display:flex;justify-content:space-between;align-items:center}
+.shot-meta b{color:var(--tx)}
+.rec{padding:2px 6px 5px;font-size:11px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#gallery::-webkit-scrollbar{width:6px}#gallery::-webkit-scrollbar-track{background:#0002;border-radius:3px}#gallery::-webkit-scrollbar-thumb{background:#4a5160;border-radius:3px}
+</style></head><body>
+<h1>Motion Gate <span id="conn" style="color:var(--mut);font-size:13px;font-weight:400">connecting…</span></h1>
+<div class="totals">
+ <div class="stat"><span>Cameras</span><strong id="tCam">0</strong></div>
+ <div class="stat"><span>Frames read</span><strong id="tIn">0</strong></div>
+ <div class="stat"><span>Sent to queue</span><strong id="tPass">0</strong></div>
+ <div class="stat"><span>Saved for YOLO</span><strong id="tPct">0%</strong></div>
+ <div class="stat"><span>Queue depth</span><strong id="tDepth">0</strong></div>
+ <div class="stat"><span>Processed</span><strong id="tProc">0</strong></div>
+</div>
+<div id="grid" class="grid"></div>
+<div id="gallery-wrap">
+  <div id="gallery-title">
+    <span>Best Shots Sent (first in, first out)</span>
+    <span id="gallery-count">0 / 50</span>
+  </div>
+  <div id="gallery"><span style="color:var(--mut);font-size:12px;padding:8px">No best shots sent yet.</span></div>
+</div>
+<div id="log"></div>
+<script>
+const $=id=>document.getElementById(id),tiles={};
+function draw(cv,img,boxes,tracks){cv.width=img.width;cv.height=img.height;const c=cv.getContext('2d'),lw=Math.max(2,img.width/320);c.drawImage(img,0,0);
+ c.fillStyle='rgba(255,77,77,.22)';(boxes||[]).forEach(b=>c.fillRect(b.x,b.y,b.w,b.h));
+ c.font='bold '+Math.round(img.width/32)+'px system-ui';c.lineWidth=lw;
+ (tracks||[]).forEach(t=>{const col='hsl('+(t.id*67%360)+',90%,60%)';c.strokeStyle=col;c.strokeRect(t.x,t.y,t.w,t.h);
+  // draw face box if present
+  if(t.face){c.strokeStyle='rgba(255,255,255,0.85)';c.lineWidth=Math.max(1,lw*0.6);c.strokeRect(t.face.x,t.face.y,t.face.w,t.face.h);c.lineWidth=lw;c.strokeStyle=col}
+  c.fillStyle=col;c.fillText('#'+t.id,t.x+4,Math.max(img.width/32,t.y-6))})}
+function log(t){const l=$('log'),d=document.createElement('div');d.textContent=new Date().toLocaleTimeString()+'  '+t;l.prepend(d);while(l.children.length>100)l.lastChild.remove()}
+function tile(id){if(tiles[id])return tiles[id];
+ const d=document.createElement('div');d.className='card';
+ d.innerHTML='<div class="th"><b></b><span class="badge">waiting…</span></div><div class="pair"><div class="wrap"><canvas></canvas><span class="tag">camera</span></div><div class="wrap"><canvas></canvas><span class="tag">no frame yet</span></div></div><div class="bar"><i></i><b></b></div><p class="sm"></p><p class="sm"></p>';
+ d.querySelector('b').textContent=id;$('grid').appendChild(d);
+ const q=s=>d.querySelector(s),cv=d.querySelectorAll('canvas'),tags=d.querySelectorAll('.tag'),sm=d.querySelectorAll('.sm');
+ return tiles[id]={live:cv[0],sent:cv[1],sentTag:tags[1],badge:q('.badge'),fill:q('.bar i'),txt:sm[0],cnt:sm[1],lastSent:0,state:'',cs:{in:0,passed:0}}}
+function totals(depth,proc,over){let i=0,p=0,n=0;for(const k in tiles){i+=tiles[k].cs.in;p+=tiles[k].cs.passed;n++}
+ $('tCam').textContent=n;$('tIn').textContent=i;$('tPass').textContent=p;$('tPct').textContent=i?Math.round((i-p)/i*100)+'%':'0%';
+ $('tDepth').textContent=depth<0?'n/a':depth;$('tProc').textContent=proc+(over?'  ⚠ overflow '+over:'')}
+
+// ---- Best Shot Gallery ----
+let recEnabled = false;
+const pendingRecog = new Map();
+
+function updateRecDiv(recDiv, ev) {
+  if (!ev) {
+    if (recEnabled) {
+      recDiv.style.color = 'var(--mut)';
+      recDiv.style.fontWeight = 'normal';
+      recDiv.textContent = 'recognizing…';
+    } else {
+      recDiv.textContent = '';
+    }
+    return;
+  }
+  const sim = (ev.similarity != null && ev.similarity !== 0) ? Number(ev.similarity).toFixed(2) : (ev.similarity === 0 ? '0.00' : 'n/a');
+  if (ev.status === 'match') {
+    recDiv.style.color = '#2ecc71';
+    recDiv.style.fontWeight = 'bold';
+    recDiv.textContent = '✔ ' + (ev.name || '') + ' · ' + sim;
+  } else if (ev.status === 'unknown') {
+    recDiv.style.color = 'var(--mut)';
+    recDiv.style.fontWeight = 'normal';
+    let txt = 'Unknown · best ' + sim;
+    if (ev.closest) txt += ' (closest: ' + ev.closest + ')';
+    recDiv.textContent = txt;
+  } else if (ev.status === 'low_quality') {
+    recDiv.style.color = 'var(--warn)';
+    recDiv.style.fontWeight = 'normal';
+    recDiv.textContent = 'face too small / unclear';
+  } else if (ev.status === 'no_face') {
+    recDiv.style.color = 'var(--warn)';
+    recDiv.style.fontWeight = 'normal';
+    recDiv.textContent = 'no face found';
+  } else if (ev.status === 'error') {
+    recDiv.style.color = 'var(--hot)';
+    recDiv.style.fontWeight = 'normal';
+    recDiv.textContent = 'recognition error';
+  } else {
+    recDiv.style.color = 'var(--mut)';
+    recDiv.style.fontWeight = 'normal';
+    recDiv.textContent = ev.status;
+  }
+}
+
+function renderGallery(shots){
+  const g=$('gallery'), cnt=$('gallery-count');
+  if(!shots||shots.length===0){
+    if(cnt) cnt.textContent='0 / 50';
+    g.innerHTML='<span style="color:var(--mut);font-size:12px;padding:8px">No best shots sent yet.</span>';
+    return;
+  }
+  if(cnt) cnt.textContent=shots.length+' / 50';
+  g.innerHTML='';
+  // shots come oldest-first; display in columns (FIFO order)
+  shots.forEach((s, idx)=>{
+    const key = (s.cam||'?')+'#'+(s.id||0)+'#'+(s.seq||0);
+    const div=document.createElement('div');
+    div.className='shot-thumb';
+    div.setAttribute('data-key', key);
+    const scoreStr=(s.score*100).toFixed(0)+'%';
+    const camLabel=s.cam||'?';
+    const idLabel='#'+s.id;
+    const ts=s.ts?new Date(s.ts).toLocaleTimeString():'';
+    div.innerHTML='<img src="data:image/jpeg;base64,'+s.jpg+'" loading="lazy" alt="shot"><div class="shot-meta"><b>'+camLabel+' '+idLabel+'</b><span>'+scoreStr+'</span></div><div class="shot-meta" style="padding-top:0"><span>#'+(idx+1)+'</span><span>'+ts+'</span></div><div class="rec"></div>';
+    const recDiv = div.querySelector('.rec');
+    if (pendingRecog.has(key)) {
+      updateRecDiv(recDiv, pendingRecog.get(key));
+    } else {
+      updateRecDiv(recDiv, null);
+    }
+    g.appendChild(div);
+  });
+  g.scrollTop=g.scrollHeight;
+}
+
+// Load initial shots
+fetch('/bestshots').then(r=>r.json()).then(shots=>renderGallery(shots)).catch(()=>{});
+
+const es=new EventSource('/events');
+es.onopen=()=>$('conn').textContent='live';
+es.onerror=()=>$('conn').textContent='disconnected';
+es.onmessage=e=>{const ev=JSON.parse(e.data);
+ if(ev.rec){recEnabled=true}
+ if(ev.type==='recog'){
+   recEnabled=true;
+   const key = (ev.cam||'?')+'#'+(ev.id||0)+'#'+(ev.seq||0);
+   pendingRecog.set(key, ev);
+   if(pendingRecog.size > 100){
+     const firstKey = pendingRecog.keys().next().value;
+     pendingRecog.delete(firstKey);
+   }
+   const cards = document.querySelectorAll('.shot-thumb');
+   for(const card of cards){
+     if(card.getAttribute('data-key') === key){
+       const rd = card.querySelector('.rec');
+       if(rd) updateRecDiv(rd, ev);
+       break;
+     }
+   }
+   return;
+ }
+ // Handle bestshots gallery update
+ if(ev.type==='bestshots'){
+   if(ev.rec){recEnabled=true}
+   renderGallery(ev.bestshots);
+   return;
+ }
+ const t=tile(ev.cam),cs=ev.cs;t.cs=cs;
+ const img=new Image();img.onload=()=>{draw(t.live,img,ev.motion?ev.boxes:[],ev.tracks);if(ev.sent){draw(t.sent,img,ev.boxes,ev.tracks);t.lastSent=Date.now()}};
+ img.src='data:image/jpeg;base64,'+ev.jpg;
+ const st=ev.state||(ev.motion?'motion':(ev.sent?'hold':'idle')),n=(ev.tracks||[]).length;
+ t.badge.className='badge '+(st==='idle'?'':st);
+ const hasFace=(ev.tracks||[]).some(tr=>tr.face);
+ t.badge.textContent=st==='person'?(hasFace?'FACE ×'+n:'PERSON ×'+n):{motion:'MOTION',hold:'HOLD',idle:'IDLE'}[st];
+ if(st!==t.state){t.state=st;
+  log('['+ev.cam+'] '+{person:'person detected → sending',motion:'motion',hold:'motion stopped → cooldown',idle:'still → nothing sent'}[st]+' (frame '+ev.seq+')')}
+ t.fill.style.width=Math.min(100,ev.score/(ev.theta*3)*100)+'%';t.fill.style.background=ev.motion?'var(--hot)':'var(--ok)';
+ t.txt.textContent='changed pixels '+(ev.score*100).toFixed(2)+'% (threshold '+(ev.theta*100).toFixed(2)+'%) · tracking: '+((ev.tracks||[]).map(x=>'#'+x.id).join(' ')||'none');
+ t.cnt.textContent='read '+cs.in+' · sent '+cs.passed+' · dropped '+cs.dropped+' ('+(cs.in?Math.round(cs.dropped/cs.in*100):0)+'%)';
+ totals(ev.stats.depth,ev.stats.processed,ev.stats.overflow)};
+setInterval(()=>{for(const k in tiles){const t=tiles[k];if(!t.lastSent)continue;const a=(Date.now()-t.lastSent)/1000;
+ t.sentTag.textContent=a<0.5?'● sending':'❄ frozen '+a.toFixed(0)+'s';t.sentTag.style.background=a<0.5?'rgba(220,40,40,.85)':'rgba(0,0,0,.65)'}},250);
+</script></body></html>

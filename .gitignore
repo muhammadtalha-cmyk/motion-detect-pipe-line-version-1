@@ -1,0 +1,42 @@
+# Binaries and executables
+motiongate
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# OS Metadata
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Python bytecode and environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.venv-*/
+env/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Runtime database, audit logs, and generated face crops
+data/*.db
+data/*.db-journal
+data/*.sqlite*
+data/shots/
+out/
+
+# Local media files (use ./make_test_video.sh to generate test videos)
+*.mp4
+*.mkv
+*.avi
+*.mov
